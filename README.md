@@ -66,6 +66,7 @@ HearToLearn
 ⚙️ Setup Instructions (Local)
 
 1️⃣ Clone the repository
+  
     git clone https://github.com/MuvvaThirapathaswami/HearToLearn.git
     
     cd HearToLearn/backend
