@@ -6,56 +6,79 @@
 <title>HearToLearn - PDF Voice Reader</title>
 
 <style>
-body {
-    margin: 0;
-    font-family: Arial;
-    background: #f5f6fa;
-    text-align: center;
-}
+    body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f5f6fa;
+        text-align: center;
+    }
 
-header {
-    background: #e63946;
-    color: white;
-    padding: 15px;
-    font-size: 22px;
-}
+    header {
+        background: #e63946;
+        color: white;
+        padding: 15px;
+        font-size: 22px;
+        font-weight: bold;
+    }
 
-.container {
-    margin-top: 60px;
-}
+    .container {
+        margin-top: 60px;
+    }
 
-.upload-box {
-    background: white;
-    padding: 40px;
-    width: 350px;
-    margin: auto;
-    border-radius: 10px;
-    box-shadow: 0px 5px 15px rgba(0,0,0,0.1);
-}
+    .upload-box {
+        background: white;
+        padding: 40px;
+        width: 350px;
+        margin: auto;
+        border-radius: 10px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
 
-button {
-    background: #e63946;
-    color: white;
-    padding: 12px 20px;
-    border: none;
-    cursor: pointer;
-    border-radius: 5px;
-}
+    input[type="file"] {
+        margin: 15px 0;
+    }
 
-button:disabled {
-    background: gray;
-    cursor: not-allowed;
-}
+    button {
+        background: #e63946;
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        font-size: 16px;
+        border-radius: 5px;
+        cursor: pointer;
+    }
 
-audio {
-    margin-top: 20px;
-    width: 100%;
-}
+    button:hover {
+        background: #d62839;
+    }
 
-#status {
-    margin-top: 15px;
-    color: gray;
-}
+    button:disabled {
+        background: #aaa;
+        cursor: not-allowed;
+    }
+
+    audio {
+        margin-top: 25px;
+        width: 100%;
+        display: none;  /* ✅ FIX: hidden until audio is ready */
+    }
+
+    /* ✅ FIX: Status message area */
+    #statusMsg {
+        margin-top: 15px;
+        font-size: 14px;
+        min-height: 20px;
+    }
+
+    .status-loading { color: #e6a817; font-weight: bold; }
+    .status-error   { color: #e63946; font-weight: bold; }
+    .status-success { color: #2a9d4e; font-weight: bold; }
+
+    footer {
+        margin-top: 60px;
+        color: #888;
+        font-size: 14px;
+    }
 </style>
 </head>
 
@@ -66,63 +89,102 @@ audio {
 <div class="container">
     <div class="upload-box">
         <h2>Upload your PDF</h2>
+        <p>Convert PDF text into speech instantly</p>
 
         <input type="file" id="pdfFile" accept="application/pdf" />
-        <br><br>
-
+        <br />
         <button id="readBtn" onclick="uploadPDF()">🔊 Read Aloud</button>
 
-        <p id="status"></p>
+        <!-- ✅ FIX: Status message shown to user -->
+        <div id="statusMsg"></div>
 
         <audio id="audioPlayer" controls></audio>
     </div>
 </div>
 
+<footer>
+    Powered by AI Text-to-Speech • Built with Python & Flask
+</footer>
+
 <script>
+const BACKEND_URL = "https://heartolearn.onrender.com";
+
 async function uploadPDF() {
     const fileInput = document.getElementById("pdfFile");
-    const status = document.getElementById("status");
-    const button = document.getElementById("readBtn");
-    const audio = document.getElementById("audioPlayer");
+    const btn = document.getElementById("readBtn");
+    const statusMsg = document.getElementById("statusMsg");
+    const audioPlayer = document.getElementById("audioPlayer");
+
+    // Reset state
+    audioPlayer.style.display = "none";
+    audioPlayer.src = "";
+    statusMsg.className = "";
+    statusMsg.textContent = "";
 
     if (!fileInput.files.length) {
-        alert("Upload a PDF first");
+        showStatus("Please upload a PDF first.", "error");
         return;
     }
 
-    button.disabled = true;
-    status.innerText = "Processing... please wait ⏳";
+    // ✅ FIX: Show loading state and disable button
+    btn.disabled = true;
+    btn.textContent = "⏳ Generating...";
+    showStatus("Uploading and converting to speech... (this may take ~15 seconds on first load)", "loading");
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
 
     try {
-        const formData = new FormData();
-        formData.append("file", fileInput.files[0]);
-
-        const response = await fetch("https://heartolearn.onrender.com/read_pdf", {
+        const response = await fetch(`${BACKEND_URL}/read_pdf`, {
             method: "POST",
             body: formData
         });
 
+        // ✅ FIX: Check if response was actually successful
         if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.error);
+            // Try to read JSON error message from backend
+            let errorMsg = `Server error (${response.status})`;
+            try {
+                const errData = await response.json();
+                if (errData.error) errorMsg = errData.error;
+            } catch (_) {
+                const text = await response.text();
+                if (text) errorMsg = text;
+            }
+            showStatus("❌ " + errorMsg, "error");
+            return;
+        }
+
+        // ✅ FIX: Verify content type is audio before creating blob
+        const contentType = response.headers.get("Content-Type") || "";
+        if (!contentType.includes("audio")) {
+            showStatus("❌ Server did not return audio. Check backend logs.", "error");
+            return;
         }
 
         const blob = await response.blob();
-        const audioURL = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(blob);
 
-        audio.src = audioURL;
-        audio.controls = true;
+        audioPlayer.src = url;
+        audioPlayer.style.display = "block";
+        audioPlayer.play();
 
-        await audio.play();
+        showStatus("✅ Audio ready! Press play below.", "success");
 
-        status.innerText = "Audio ready ✅";
-
-    } catch (error) {
-        console.error(error);
-        status.innerText = "❌ " + error.message;
+    } catch (err) {
+        // ✅ FIX: Network error (CORS, server down, etc.)
+        console.error("Fetch error:", err);
+        showStatus("❌ Could not reach the server. Is the backend running on Render? Check CORS settings.", "error");
     } finally {
-        button.disabled = false;
+        btn.disabled = false;
+        btn.textContent = "🔊 Read Aloud";
     }
+}
+
+function showStatus(msg, type) {
+    const el = document.getElementById("statusMsg");
+    el.textContent = msg;
+    el.className = `status-${type}`;
 }
 </script>
 
