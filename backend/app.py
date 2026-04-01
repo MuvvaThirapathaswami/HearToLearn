@@ -1,60 +1,53 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
 from gtts import gTTS
 import PyPDF2
 import io
-import os
 
 app = Flask(__name__)
 CORS(app)
 
-
 @app.route("/read_pdf", methods=["POST"])
 def read_pdf():
     try:
-        pdf = request.files["file"]
-        reader = PyPDF2.PdfReader(pdf)
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
 
+        file = request.files['file']
+
+        # Read PDF
+        pdf_reader = PyPDF2.PdfReader(file)
         text = ""
 
-        # 🔍 Extract text safely
-        for page in reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text += extracted
+        for page in pdf_reader.pages:
+            text += page.extract_text() or ""
 
-        print("Extracted text length:", len(text))
-
-        # 🔥 LIMIT TEXT (IMPORTANT)
-        text = text[:1500]
-
-        # 🚨 Handle empty text
         if not text.strip():
-            return "No readable text found in PDF", 400
+            return jsonify({"error": "No text found in PDF"}), 400
 
-        # 🔊 Convert to speech
-        tts = gTTS(text)
+        # LIMIT TEXT (IMPORTANT for gTTS)
+        text = text[:3000]
 
-        audio_fp = io.BytesIO()
-        tts.write_to_fp(audio_fp)
-        audio_fp.seek(0)
+        # Convert to speech
+        tts = gTTS(text=text, lang='en')
+
+        audio_bytes = io.BytesIO()
+        tts.write_to_fp(audio_bytes)
+        audio_bytes.seek(0)
 
         return send_file(
-            audio_fp,
+            audio_bytes,
             mimetype="audio/mpeg",
-            as_attachment=False
+            as_attachment=False,
+            download_name="output.mp3"
         )
 
     except Exception as e:
         print("ERROR:", str(e))
-        return f"Error generating audio: {str(e)}", 500
-
-
-@app.route("/")
-def home():
-    return "PDF Voice Reader API Running"
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
+    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
