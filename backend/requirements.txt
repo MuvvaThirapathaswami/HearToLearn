@@ -1,5 +1,5 @@
 flask
 flask-cors
-edge-tts
+gTTS
 PyPDF2
 gunicorn
