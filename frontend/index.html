@@ -48,22 +48,15 @@
         cursor: pointer;
     }
 
-    button:hover {
-        background: #d62839;
-    }
-
-    button:disabled {
-        background: #aaa;
-        cursor: not-allowed;
-    }
+    button:hover { background: #d62839; }
+    button:disabled { background: #aaa; cursor: not-allowed; }
 
     audio {
         margin-top: 25px;
         width: 100%;
-        display: none;  /* ✅ FIX: hidden until audio is ready */
+        display: none;
     }
 
-    /* ✅ FIX: Status message area */
     #statusMsg {
         margin-top: 15px;
         font-size: 14px;
@@ -95,9 +88,7 @@
         <br />
         <button id="readBtn" onclick="uploadPDF()">🔊 Read Aloud</button>
 
-        <!-- ✅ FIX: Status message shown to user -->
         <div id="statusMsg"></div>
-
         <audio id="audioPlayer" controls></audio>
     </div>
 </div>
@@ -115,7 +106,7 @@ async function uploadPDF() {
     const statusMsg = document.getElementById("statusMsg");
     const audioPlayer = document.getElementById("audioPlayer");
 
-    // Reset state
+    // Reset
     audioPlayer.style.display = "none";
     audioPlayer.src = "";
     statusMsg.className = "";
@@ -126,10 +117,9 @@ async function uploadPDF() {
         return;
     }
 
-    // ✅ FIX: Show loading state and disable button
     btn.disabled = true;
     btn.textContent = "⏳ Generating...";
-    showStatus("Uploading and converting to speech... (this may take ~15 seconds on first load)", "loading");
+    showStatus("Uploading and generating audio... (may take ~15s on first load)", "loading");
 
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
@@ -140,25 +130,19 @@ async function uploadPDF() {
             body: formData
         });
 
-        // ✅ FIX: Check if response was actually successful
         if (!response.ok) {
-            // Try to read JSON error message from backend
             let errorMsg = `Server error (${response.status})`;
             try {
                 const errData = await response.json();
                 if (errData.error) errorMsg = errData.error;
-            } catch (_) {
-                const text = await response.text();
-                if (text) errorMsg = text;
-            }
+            } catch (_) {}
             showStatus("❌ " + errorMsg, "error");
             return;
         }
 
-        // ✅ FIX: Verify content type is audio before creating blob
         const contentType = response.headers.get("Content-Type") || "";
         if (!contentType.includes("audio")) {
-            showStatus("❌ Server did not return audio. Check backend logs.", "error");
+            showStatus("❌ Server did not return audio. Check Render logs.", "error");
             return;
         }
 
@@ -169,12 +153,11 @@ async function uploadPDF() {
         audioPlayer.style.display = "block";
         audioPlayer.play();
 
-        showStatus("✅ Audio ready! Press play below.", "success");
+        showStatus("✅ Audio ready!", "success");
 
     } catch (err) {
-        // ✅ FIX: Network error (CORS, server down, etc.)
-        console.error("Fetch error:", err);
-        showStatus("❌ Could not reach the server. Is the backend running on Render? Check CORS settings.", "error");
+        console.error(err);
+        showStatus("❌ Could not reach server. Render may be waking up — try again in 30s.", "error");
     } finally {
         btn.disabled = false;
         btn.textContent = "🔊 Read Aloud";
@@ -184,7 +167,7 @@ async function uploadPDF() {
 function showStatus(msg, type) {
     const el = document.getElementById("statusMsg");
     el.textContent = msg;
-    el.className = `status-${type}`;
+    el.className = type ? `status-${type}` : "";
 }
 </script>
 
