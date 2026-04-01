@@ -5,69 +5,75 @@ import PyPDF2
 import io
 import os
 import time
+import re
 
 app = Flask(__name__)
 CORS(app)
 
-# ⏱️ Global cooldown (prevent spam requests)
 LAST_CALL_TIME = 0
-COOLDOWN = 5  # seconds
+COOLDOWN = 5
 
 @app.route("/")
 def home():
-    return "HearToLearn Backend Running 🚀"
+    return "Backend Running 🚀"
 
 @app.route("/read_pdf", methods=["POST"])
 def read_pdf():
     global LAST_CALL_TIME
 
     try:
-        # 🚫 Rate limiting
         current_time = time.time()
         if current_time - LAST_CALL_TIME < COOLDOWN:
-            return jsonify({"error": "Too many requests. Please wait a few seconds."}), 429
+            return jsonify({"error": "Wait a few seconds"}), 429
 
         LAST_CALL_TIME = current_time
 
-        # 📂 Check file
         if 'file' not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
 
         file = request.files['file']
 
-        # 📄 Read PDF
+        # File size check
+        file_bytes = file.read()
+        if len(file_bytes) > 5 * 1024 * 1024:
+            return jsonify({"error": "File too large"}), 400
+
+        file.seek(0)
+
         pdf_reader = PyPDF2.PdfReader(file)
         text = ""
 
         for page in pdf_reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                text += extracted
+            try:
+                extracted = page.extract_text()
+                if extracted:
+                    text += extracted
+            except:
+                continue
 
         if not text.strip():
-            return jsonify({"error": "No readable text found in PDF"}), 400
+            return jsonify({"error": "No readable text"}), 400
 
-        # ✂️ Limit text (avoid gTTS crash)
-        MAX_CHARS = 2500
-        text = text[:MAX_CHARS]
+        # Clean text
+        text = re.sub(r'\s+', ' ', text)
+        text = text.encode('ascii', 'ignore').decode()
 
-        # 🔊 Convert to speech
-        tts = gTTS(text=text, lang='en')
+        text = text[:2500]
+
+        try:
+            tts = gTTS(text=text, lang='en')
+        except:
+            return jsonify({"error": "TTS failed"}), 500
 
         audio_bytes = io.BytesIO()
         tts.write_to_fp(audio_bytes)
         audio_bytes.seek(0)
 
-        return send_file(
-            audio_bytes,
-            mimetype="audio/mpeg",
-            as_attachment=False,
-            download_name="output.mp3"
-        )
+        return send_file(audio_bytes, mimetype="audio/mpeg")
 
     except Exception as e:
-        print("ERROR:", str(e))
-        return jsonify({"error": "Server error. Try again later."}), 500
+        print("FULL ERROR:", str(e))
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
