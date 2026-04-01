@@ -4,97 +4,71 @@ from gtts import gTTS
 import PyPDF2
 import io
 import os
-import time
-import re
 
 app = Flask(__name__)
-CORS(app)
 
-LAST_CALL_TIME = 0
-COOLDOWN = 5
+# ✅ FIX 1: Allow your Vercel frontend domain explicitly
+CORS(app, origins=["*"])
 
-@app.route("/")
-def home():
-    return "Backend Running 🚀"
 
 @app.route("/read_pdf", methods=["POST"])
 def read_pdf():
-    global LAST_CALL_TIME
-
     try:
-        # ⏱️ Rate limiting
-        current_time = time.time()
-        if current_time - LAST_CALL_TIME < COOLDOWN:
-            return jsonify({"error": "Please wait 5 seconds before retrying"}), 429
-
-        LAST_CALL_TIME = current_time
-
-        # 📂 File check
-        if 'file' not in request.files:
+        # ✅ FIX 2: Check if file was actually sent
+        if "file" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
 
-        file = request.files['file']
+        pdf = request.files["file"]
 
-        # 📏 File size check (SAFE)
-        file.seek(0, os.SEEK_END)
-        file_length = file.tell()
-        file.seek(0)
+        if pdf.filename == "":
+            return jsonify({"error": "Empty filename"}), 400
 
-        if file_length > 5 * 1024 * 1024:
-            return jsonify({"error": "File too large (max 5MB)"}), 400
-
-        # 📄 Read PDF safely
-        try:
-            pdf_reader = PyPDF2.PdfReader(file)
-        except Exception:
-            return jsonify({"error": "Invalid or corrupted PDF"}), 400
+        reader = PyPDF2.PdfReader(pdf)
 
         text = ""
 
-        for page in pdf_reader.pages:
-            try:
-                extracted = page.extract_text()
-                if extracted:
-                    text += extracted
-            except:
-                continue
+        # Extract text safely from all pages
+        for page in reader.pages:
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted + " "
 
-        if not text.strip():
-            return jsonify({"error": "No readable text found"}), 400
+        print("Extracted text length:", len(text))
 
-        # 🧹 Clean text (VERY IMPORTANT)
-        text = re.sub(r'\s+', ' ', text)
-        text = text.encode('ascii', 'ignore').decode()
+        # Limit text to avoid gTTS timeout on Render free tier
+        text = text[:1500].strip()
 
-        # ✂️ Limit text
-        text = text[:2000]
+        # Handle empty text
+        if not text:
+            return jsonify({"error": "No readable text found in this PDF. It may be a scanned image PDF."}), 400
 
-        # 🔊 Convert to speech (SAFE)
+        # ✅ FIX 3: Convert to speech with error handling
         try:
-            tts = gTTS(text=text, lang='en')
-        except Exception as e:
-            print("TTS INIT ERROR:", str(e))
-            return jsonify({"error": "TTS initialization failed"}), 500
+            tts = gTTS(text, lang="en")
+        except Exception as tts_error:
+            print("gTTS ERROR:", str(tts_error))
+            return jsonify({"error": f"Text-to-speech failed: {str(tts_error)}"}), 500
 
-        audio_bytes = io.BytesIO()
+        audio_fp = io.BytesIO()
+        tts.write_to_fp(audio_fp)
+        audio_fp.seek(0)
 
-        try:
-            tts.write_to_fp(audio_bytes)
-        except Exception as e:
-            print("TTS WRITE ERROR:", str(e))
-            return jsonify({"error": "Audio generation failed"}), 500
-
-        audio_bytes.seek(0)
-
+        # ✅ FIX 4: Add download_name so Flask correctly sets headers
         return send_file(
-            audio_bytes,
+            audio_fp,
             mimetype="audio/mpeg",
-            as_attachment=False
+            as_attachment=False,
+            download_name="audio.mp3"
         )
 
     except Exception as e:
-        print("FULL ERROR:", str(e))
-        return jsonify({"error": "Server crashed. Check logs."}), 500
+        print("ERROR:", str(e))
+        return jsonify({"error": f"Error generating audio: {str(e)}"}), 500
+
+
+@app.route("/")
+def home():
+    return "HearToLearn PDF Voice Reader API is Running ✅"
 
 
 if __name__ == "__main__":
