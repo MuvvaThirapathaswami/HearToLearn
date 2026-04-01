@@ -1,14 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HearToLearn - PDF Voice Reader</title>
+
+<style>
+body {
+    margin: 0;
+    font-family: Arial;
+    background: #f5f6fa;
+    text-align: center;
+}
+
+header {
+    background: #e63946;
+    color: white;
+    padding: 15px;
+    font-size: 22px;
+}
+
+.container {
+    margin-top: 60px;
+}
+
+.upload-box {
+    background: white;
+    padding: 40px;
+    width: 350px;
+    margin: auto;
+    border-radius: 10px;
+}
+
+button {
+    background: #e63946;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    cursor: pointer;
+}
+
+audio {
+    margin-top: 20px;
+    width: 100%;
+}
+
+#status {
+    margin-top: 15px;
+    color: gray;
+}
+</style>
+</head>
+
+<body>
+
+<header>🎧 HearToLearn – PDF Voice Reader</header>
+
+<div class="container">
+    <div class="upload-box">
+        <h2>Upload your PDF</h2>
+
+        <input type="file" id="pdfFile" accept="application/pdf" />
+        <br><br>
+
+        <button onclick="uploadPDF()">🔊 Read Aloud</button>
+
+        <p id="status"></p>
+
+        <audio id="audioPlayer" controls></audio>
+    </div>
+</div>
+
 <script>
 async function uploadPDF() {
     const fileInput = document.getElementById("pdfFile");
+    const status = document.getElementById("status");
 
     if (!fileInput.files.length) {
-        alert("Please upload a PDF first.");
+        alert("Upload a PDF first");
         return;
     }
 
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
+
+    status.innerText = "Processing... please wait ⏳";
 
     try {
         const response = await fetch("https://heartolearn.onrender.com/read_pdf", {
@@ -18,19 +94,26 @@ async function uploadPDF() {
 
         if (!response.ok) {
             const err = await response.json();
-            throw new Error(err.error || "Server error");
+            throw new Error(err.error);
         }
 
         const blob = await response.blob();
 
+        const audioURL = URL.createObjectURL(blob);
         const audio = document.getElementById("audioPlayer");
-        audio.src = URL.createObjectURL(blob);
+
+        audio.src = audioURL;
         audio.load();
         audio.play();
 
+        status.innerText = "Audio ready ✅";
+
     } catch (error) {
-        alert(error.message);
         console.error(error);
+        status.innerText = "Error: " + error.message;
     }
 }
 </script>
+
+</body>
+</html>
