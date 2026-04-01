@@ -4,23 +4,38 @@ from gtts import gTTS
 import PyPDF2
 import io
 import os
+import time
 
 app = Flask(__name__)
 CORS(app)
 
+# ⏱️ Global cooldown (prevent spam requests)
+LAST_CALL_TIME = 0
+COOLDOWN = 5  # seconds
+
 @app.route("/")
 def home():
-    return "HearToLearn Backend Running"
+    return "HearToLearn Backend Running 🚀"
 
 @app.route("/read_pdf", methods=["POST"])
 def read_pdf():
+    global LAST_CALL_TIME
+
     try:
+        # 🚫 Rate limiting
+        current_time = time.time()
+        if current_time - LAST_CALL_TIME < COOLDOWN:
+            return jsonify({"error": "Too many requests. Please wait a few seconds."}), 429
+
+        LAST_CALL_TIME = current_time
+
+        # 📂 Check file
         if 'file' not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
 
         file = request.files['file']
 
-        # Read PDF
+        # 📄 Read PDF
         pdf_reader = PyPDF2.PdfReader(file)
         text = ""
 
@@ -30,12 +45,13 @@ def read_pdf():
                 text += extracted
 
         if not text.strip():
-            return jsonify({"error": "No text found in PDF"}), 400
+            return jsonify({"error": "No readable text found in PDF"}), 400
 
-        # LIMIT TEXT (important for gTTS)
-        text = text[:3000]
+        # ✂️ Limit text (avoid gTTS crash)
+        MAX_CHARS = 2500
+        text = text[:MAX_CHARS]
 
-        # Convert text to speech
+        # 🔊 Convert to speech
         tts = gTTS(text=text, lang='en')
 
         audio_bytes = io.BytesIO()
@@ -51,7 +67,7 @@ def read_pdf():
 
     except Exception as e:
         print("ERROR:", str(e))
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Server error. Try again later."}), 500
 
 
 if __name__ == "__main__":
