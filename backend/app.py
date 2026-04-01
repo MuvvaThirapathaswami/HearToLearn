@@ -3,9 +3,14 @@ from flask_cors import CORS
 from gtts import gTTS
 import PyPDF2
 import io
+import os
 
 app = Flask(__name__)
 CORS(app)
+
+@app.route("/")
+def home():
+    return "HearToLearn Backend Running"
 
 @app.route("/read_pdf", methods=["POST"])
 def read_pdf():
@@ -20,15 +25,17 @@ def read_pdf():
         text = ""
 
         for page in pdf_reader.pages:
-            text += page.extract_text() or ""
+            extracted = page.extract_text()
+            if extracted:
+                text += extracted
 
         if not text.strip():
             return jsonify({"error": "No text found in PDF"}), 400
 
-        # LIMIT TEXT (IMPORTANT for gTTS)
+        # LIMIT TEXT (important for gTTS)
         text = text[:3000]
 
-        # Convert to speech
+        # Convert text to speech
         tts = gTTS(text=text, lang='en')
 
         audio_bytes = io.BytesIO()
@@ -48,6 +55,5 @@ def read_pdf():
 
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
