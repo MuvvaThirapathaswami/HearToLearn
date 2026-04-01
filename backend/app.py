@@ -1,10 +1,10 @@
 from flask import Flask, request, send_file, jsonify
 from flask_cors import CORS
+from gtts import gTTS
 import PyPDF2
 import io
 import os
-import asyncio
-import edge_tts
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -13,7 +13,6 @@ CORS(app)
 @app.route("/read_pdf", methods=["POST"])
 def read_pdf():
     try:
-        # Check file was sent
         if "file" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
 
@@ -32,26 +31,30 @@ def read_pdf():
 
         print("Extracted text length:", len(text))
 
-        # Limit text to avoid timeout on Render free tier
         text = text[:1500].strip()
 
         if not text:
             return jsonify({"error": "No readable text found in this PDF. It may be a scanned image PDF."}), 400
 
-        # Use edge-tts (Microsoft) — no rate limits, no 429 errors
-        audio_fp = io.BytesIO()
+        # ✅ Retry up to 3 times to handle gTTS 429 rate limit
+        audio_fp = None
+        last_error = None
 
-        async def generate():
-            communicate = edge_tts.Communicate(text, voice="en-US-JennyNeural")
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_fp.write(chunk["data"])
+        for attempt in range(3):
+            try:
+                tts = gTTS(text, lang="en")
+                audio_fp = io.BytesIO()
+                tts.write_to_fp(audio_fp)
+                audio_fp.seek(0)
+                print(f"gTTS succeeded on attempt {attempt + 1}")
+                break  # success — exit retry loop
+            except Exception as e:
+                last_error = str(e)
+                print(f"gTTS attempt {attempt + 1} failed: {last_error}")
+                time.sleep(3)  # wait 3 seconds before retrying
 
-        asyncio.run(generate())
-        audio_fp.seek(0)
-
-        if audio_fp.getbuffer().nbytes == 0:
-            return jsonify({"error": "Audio generation produced no output"}), 500
+        if audio_fp is None:
+            return jsonify({"error": f"TTS failed after 3 attempts: {last_error}"}), 500
 
         return send_file(
             audio_fp,
@@ -62,7 +65,7 @@ def read_pdf():
 
     except Exception as e:
         print("ERROR:", str(e))
-        return jsonify({"error": f"Error generating audio: {str(e)}"}), 500
+        return jsonify({"error": f"Error: {str(e)}"}), 500
 
 
 @app.route("/")
