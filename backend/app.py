@@ -1,10 +1,11 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file, jsonify, Response
 from flask_cors import CORS
 from gtts import gTTS
 import PyPDF2
 import io
 import os
 import time
+import tempfile
 
 app = Flask(__name__)
 CORS(app)
@@ -17,7 +18,6 @@ def read_pdf():
             return jsonify({"error": "No file uploaded"}), 400
 
         pdf = request.files["file"]
-
         if pdf.filename == "":
             return jsonify({"error": "Empty filename"}), 400
 
@@ -30,37 +30,62 @@ def read_pdf():
                 text += extracted + " "
 
         print("Extracted text length:", len(text))
-
         text = text[:1500].strip()
 
         if not text:
-            return jsonify({"error": "No readable text found in this PDF. It may be a scanned image PDF."}), 400
+            return jsonify({"error": "No readable text found. PDF may be a scanned image."}), 400
 
-        # ✅ Retry up to 3 times to handle gTTS 429 rate limit
-        audio_fp = None
+        # ✅ Save to a REAL temp file instead of BytesIO — fixes empty audio bug
         last_error = None
+        tmp_path = None
 
         for attempt in range(3):
             try:
                 tts = gTTS(text, lang="en")
-                audio_fp = io.BytesIO()
-                tts.write_to_fp(audio_fp)
-                audio_fp.seek(0)
-                print(f"gTTS succeeded on attempt {attempt + 1}")
-                break  # success — exit retry loop
+
+                # Write to actual temp file on disk
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+                    tmp_path = tmp.name
+
+                tts.save(tmp_path)
+
+                file_size = os.path.getsize(tmp_path)
+                print(f"Audio file size: {file_size} bytes (attempt {attempt + 1})")
+
+                if file_size == 0:
+                    raise Exception("gTTS saved an empty file")
+
+                break  # success
+
             except Exception as e:
                 last_error = str(e)
-                print(f"gTTS attempt {attempt + 1} failed: {last_error}")
-                time.sleep(3)  # wait 3 seconds before retrying
+                print(f"Attempt {attempt + 1} failed: {last_error}")
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                    tmp_path = None
+                time.sleep(3)
 
-        if audio_fp is None:
+        if tmp_path is None:
             return jsonify({"error": f"TTS failed after 3 attempts: {last_error}"}), 500
 
-        return send_file(
-            audio_fp,
+        # ✅ Stream the real file back, then clean it up
+        def stream_and_cleanup():
+            with open(tmp_path, "rb") as f:
+                while True:
+                    chunk = f.read(8192)
+                    if not chunk:
+                        break
+                    yield chunk
+            os.remove(tmp_path)
+            print("Temp file cleaned up")
+
+        return Response(
+            stream_and_cleanup(),
             mimetype="audio/mpeg",
-            as_attachment=False,
-            download_name="audio.mp3"
+            headers={
+                "Content-Disposition": "inline; filename=audio.mp3",
+                "Cache-Control": "no-cache"
+            }
         )
 
     except Exception as e:
