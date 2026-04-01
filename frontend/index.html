@@ -1,113 +1,11 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>HearToLearn - PDF Voice Reader</title>
-
-<style>
-    body {
-        margin: 0;
-        font-family: Arial, Helvetica, sans-serif;
-        background: #f5f6fa;
-        text-align: center;
-    }
-
-    header {
-        background: #e63946;
-        color: white;
-        padding: 15px;
-        font-size: 22px;
-        font-weight: bold;
-    }
-
-    .container {
-        margin-top: 60px;
-    }
-
-    .upload-box {
-        background: white;
-        padding: 40px;
-        width: 350px;
-        margin: auto;
-        border-radius: 10px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    }
-
-    input[type="file"] {
-        margin: 15px 0;
-    }
-
-    button {
-        background: #e63946;
-        color: white;
-        border: none;
-        padding: 12px 20px;
-        font-size: 16px;
-        border-radius: 5px;
-        cursor: pointer;
-    }
-
-    button:hover {
-        background: #d62839;
-    }
-
-    audio {
-        margin-top: 25px;
-        width: 100%;
-    }
-
-    #status {
-        margin-top: 10px;
-        font-size: 14px;
-        color: #555;
-        min-height: 20px;
-    }
-
-    footer {
-        margin-top: 60px;
-        color: #888;
-        font-size: 14px;
-    }
-</style>
-</head>
-
-<body>
-
-<header>🎧 HearToLearn – PDF Voice Reader</header>
-
-<div class="container">
-    <div class="upload-box">
-        <h2>Upload your PDF</h2>
-        <p>Convert PDF text into speech instantly</p>
-
-        <input type="file" id="pdfFile" accept="application/pdf" />
-        <br />
-        <button onclick="uploadPDF()">🔊 Read Aloud</button>
-
-        <p id="status"></p>
-
-        <audio id="audioPlayer" controls></audio>
-    </div>
-</div>
-
-<footer>
-    Powered by AI Text-to-Speech • Built with Python & Flask
-</footer>
-
 <script>
 async function uploadPDF() {
     const fileInput = document.getElementById("pdfFile");
-    const status = document.getElementById("status");
-    const audioPlayer = document.getElementById("audioPlayer");
 
     if (!fileInput.files.length) {
         alert("Please upload a PDF first.");
         return;
     }
-
-    status.innerText = "Processing PDF... please wait ⏳";
-    audioPlayer.src = "";
 
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
@@ -118,17 +16,21 @@ async function uploadPDF() {
             body: formData
         });
 
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        audioPlayer.src = url;
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Server error");
+        }
 
-        status.innerText = "Audio ready! Click play ▶";
+        const blob = await response.blob();
+
+        const audio = document.getElementById("audioPlayer");
+        audio.src = URL.createObjectURL(blob);
+        audio.load();
+        audio.play();
+
     } catch (error) {
-        status.innerText = "Something went wrong. Please try again.";
+        alert(error.message);
         console.error(error);
     }
 }
 </script>
-
-</body>
-</html>
