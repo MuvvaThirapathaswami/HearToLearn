@@ -4,77 +4,100 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>HearToLearn - PDF Voice Reader</title>
-
 <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-        margin: 0;
         font-family: Arial, Helvetica, sans-serif;
         background: #f5f6fa;
-        text-align: center;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
     }
 
     header {
         background: #e63946;
         color: white;
-        padding: 15px;
+        padding: 18px;
         font-size: 22px;
         font-weight: bold;
+        text-align: center;
     }
 
     .container {
-        margin-top: 60px;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px 20px;
     }
 
     .upload-box {
         background: white;
         padding: 40px;
-        width: 350px;
-        margin: auto;
-        border-radius: 10px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 420px;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        text-align: center;
     }
+
+    h2 { font-size: 24px; margin-bottom: 8px; }
+    p  { color: #666; margin-bottom: 20px; }
 
     input[type="file"] {
-        margin: 15px 0;
+        display: block;
+        margin: 0 auto 20px;
     }
 
-    button {
+    .btn {
         background: #e63946;
         color: white;
         border: none;
-        padding: 12px 20px;
+        padding: 13px 20px;
         font-size: 16px;
-        border-radius: 5px;
+        border-radius: 8px;
         cursor: pointer;
-    }
-
-    button:hover { background: #d62839; }
-    button:disabled { background: #aaa; cursor: not-allowed; }
-
-    audio {
-        margin-top: 25px;
         width: 100%;
+        margin-bottom: 10px;
+    }
+    .btn:hover    { background: #d62839; }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-pause  { background: #f4a261; }
+    .btn-pause:hover  { background: #e08c4a; }
+    .btn-stop   { background: #555; }
+    .btn-stop:hover   { background: #333; }
+
+    .controls {
         display: none;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+    .controls.visible {
+        display: flex;
+    }
+    .controls .btn {
+        margin-bottom: 0;
     }
 
     #statusMsg {
-        margin-top: 15px;
+        margin-top: 14px;
         font-size: 14px;
-        min-height: 20px;
+        min-height: 18px;
+        line-height: 1.5;
     }
-
     .status-loading { color: #e6a817; font-weight: bold; }
     .status-error   { color: #e63946; font-weight: bold; }
     .status-success { color: #2a9d4e; font-weight: bold; }
 
     footer {
-        margin-top: 60px;
-        color: #888;
-        font-size: 14px;
+        text-align: center;
+        color: #aaa;
+        font-size: 13px;
+        padding: 20px;
     }
 </style>
 </head>
-
 <body>
 
 <header>🎧 HearToLearn – PDF Voice Reader</header>
@@ -85,41 +108,35 @@
         <p>Convert PDF text into speech instantly</p>
 
         <input type="file" id="pdfFile" accept="application/pdf" />
-        <br />
-        <button id="readBtn" onclick="uploadPDF()">🔊 Read Aloud</button>
+
+        <button class="btn" id="readBtn" onclick="startReading()">🔊 Read Aloud</button>
+
+        <div class="controls" id="controls">
+            <button class="btn btn-pause" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
+            <button class="btn btn-stop"  id="stopBtn"  onclick="stopReading()">⏹ Stop</button>
+        </div>
 
         <div id="statusMsg"></div>
-        <audio id="audioPlayer" controls></audio>
     </div>
 </div>
 
-<footer>
-    Powered by AI Text-to-Speech • Built with Python & Flask
-</footer>
+<footer>Powered by AI Text-to-Speech • Built with Python &amp; Flask</footer>
 
 <script>
 const BACKEND_URL = "https://heartolearn.onrender.com";
+let utterance = null;
+let isPaused  = false;
 
-async function uploadPDF() {
+async function startReading() {
     const fileInput = document.getElementById("pdfFile");
-    const btn = document.getElementById("readBtn");
-    const statusMsg = document.getElementById("statusMsg");
-    const audioPlayer = document.getElementById("audioPlayer");
-
-    // Reset
-    audioPlayer.style.display = "none";
-    audioPlayer.src = "";
-    statusMsg.className = "";
-    statusMsg.textContent = "";
-
     if (!fileInput.files.length) {
-        showStatus("Please upload a PDF first.", "error");
+        showStatus("⚠️ Please choose a PDF file first.", "error");
         return;
     }
 
-    btn.disabled = true;
-    btn.textContent = "⏳ Generating...";
-    showStatus("Uploading and generating audio... (may take ~15s on first load)", "loading");
+    stopReading();
+    setBtn(true, "⏳ Extracting text...");
+    showStatus("📄 Sending PDF to server...", "loading");
 
     const formData = new FormData();
     formData.append("file", fileInput.files[0]);
@@ -130,46 +147,95 @@ async function uploadPDF() {
             body: formData
         });
 
-        if (!response.ok) {
-            let errorMsg = `Server error (${response.status})`;
-            try {
-                const errData = await response.json();
-                if (errData.error) errorMsg = errData.error;
-            } catch (_) {}
-            showStatus("❌ " + errorMsg, "error");
+        const data = await response.json();
+
+        if (!response.ok || data.error) {
+            showStatus("❌ " + (data.error || "Server error"), "error");
+            setBtn(false);
             return;
         }
 
-        const contentType = response.headers.get("Content-Type") || "";
-        if (!contentType.includes("audio")) {
-            showStatus("❌ Server did not return audio. Check Render logs.", "error");
-            return;
-        }
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-
-        audioPlayer.src = url;
-        audioPlayer.style.display = "block";
-        audioPlayer.play();
-
-        showStatus("✅ Audio ready!", "success");
+        const text = data.text;
+        showStatus("🔊 Speaking now...", "success");
+        speak(text);
 
     } catch (err) {
         console.error(err);
-        showStatus("❌ Could not reach server. Render may be waking up — try again in 30s.", "error");
-    } finally {
-        btn.disabled = false;
-        btn.textContent = "🔊 Read Aloud";
+        showStatus("❌ Could not reach server. Render may be waking up (~50s). Try again!", "error");
+        setBtn(false);
     }
+}
+
+function speak(text) {
+    if (!window.speechSynthesis) {
+        showStatus("❌ Your browser does not support speech. Try Chrome or Edge.", "error");
+        setBtn(false);
+        return;
+    }
+
+    utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang  = "en-US";
+    utterance.rate  = 0.95;
+    utterance.pitch = 1;
+
+    utterance.onstart = () => {
+        setBtn(false);
+        document.getElementById("controls").classList.add("visible");
+        showStatus("🔊 Speaking now... press Pause or Stop anytime.", "success");
+    };
+
+    utterance.onend = () => {
+        showStatus("✅ Done reading!", "success");
+        document.getElementById("controls").classList.remove("visible");
+        setBtn(false, "🔊 Read Aloud");
+    };
+
+    utterance.onerror = (e) => {
+        if (e.error !== "interrupted" && e.error !== "canceled") {
+            showStatus("❌ Speech error: " + e.error, "error");
+        }
+        document.getElementById("controls").classList.remove("visible");
+        setBtn(false, "🔊 Read Aloud");
+    };
+
+    window.speechSynthesis.speak(utterance);
+}
+
+function togglePause() {
+    const btn = document.getElementById("pauseBtn");
+    if (!isPaused) {
+        window.speechSynthesis.pause();
+        isPaused = true;
+        btn.textContent = "▶ Resume";
+        showStatus("⏸ Paused", "loading");
+    } else {
+        window.speechSynthesis.resume();
+        isPaused = false;
+        btn.textContent = "⏸ Pause";
+        showStatus("🔊 Speaking now...", "success");
+    }
+}
+
+function stopReading() {
+    window.speechSynthesis.cancel();
+    isPaused = false;
+    document.getElementById("controls").classList.remove("visible");
+    document.getElementById("pauseBtn").textContent = "⏸ Pause";
+    setBtn(false, "🔊 Read Aloud");
+    showStatus("", "");
+}
+
+function setBtn(disabled, label) {
+    const btn = document.getElementById("readBtn");
+    btn.disabled = disabled;
+    if (label) btn.textContent = label;
 }
 
 function showStatus(msg, type) {
     const el = document.getElementById("statusMsg");
     el.textContent = msg;
-    el.className = type ? `status-${type}` : "";
+    el.className   = type ? `status-${type}` : "";
 }
 </script>
-
 </body>
 </html>
